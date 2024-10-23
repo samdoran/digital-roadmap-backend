@@ -1,13 +1,12 @@
 # Digital roadmap backend PoC
 
-FastAPI application with Redis integration for caching or data storage, using `Uvicorn` as the ASGI server.
+FastAPI application using `Uvicorn` as the ASGI server.
 
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
 
 - Python 3.7 or later
-- Redis (local installation or access to a remote Redis server)
 
 ## Setup Instructions
 
