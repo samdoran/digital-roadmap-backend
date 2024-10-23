@@ -11,11 +11,11 @@ default: install
 venv:
 	python3 -m venv $(VENV_DIR)
 
-install: venv
+install:
 	$(PIP) install -r requirements.txt
 	$(PIP) install -r requirements-dev.txt
 
-run: venv
+run:
 	$(UVICORN) app.main:app --reload
 
 clean:

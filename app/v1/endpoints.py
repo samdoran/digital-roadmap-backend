@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from app.models import ReleaseModel
-from app.services.keyword_search import get_relevant_notes
+from app.services.naive_keyword_search import get_relevant_notes
 
 v1_router = APIRouter()
 

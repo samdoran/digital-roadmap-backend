@@ -60,8 +60,7 @@ def normalize_text(text):
 
 
 def get_release_notes(release: ReleaseModel):
-    # This is a dummy function that returns a dictionary with release notes
-    # TODO: in future this should be replace with a function that will use internal GrapQL client to fetch data from database
+    # TODO: in future this should be replace with a function that will use GrapQL client to fetch data from database
     # It should be cached for a certain period of time
     logging.info(f"Fetching release notes for version {release.major}.{release.minor}")
     path = os.path.join(BASE_DIR, "data", f"{release.major}.{release.minor}.html")

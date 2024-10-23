@@ -5,6 +5,9 @@ from app.services.fetch_graphql_data import get_release_notes
 
 
 def get_relevant_notes(release, keywords=None):
+    """
+    Get the release notes for a given release and tag the paragraphs that contain the keywords as relevant.
+    """
     notes = get_release_notes(release)
 
     if keywords is None:
