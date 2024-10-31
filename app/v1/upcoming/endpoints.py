@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 v1_router = APIRouter()
 
+
 @v1_router.get("/get-future-data")
 async def get_relevant():
     # TODO: This is a dummy function that returns a list of changes that are planned for the future.
