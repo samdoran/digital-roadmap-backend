@@ -6,7 +6,7 @@ FastAPI application using `Uvicorn` as the ASGI server.
 
 Before you begin, ensure you have the following installed:
 
-- Python 3.7 or later
+- Python 3.9 or later
 
 ## Setup Instructions
 
