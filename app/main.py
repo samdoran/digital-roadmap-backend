@@ -1,9 +1,17 @@
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
-from app.v1.endpoints import v1_router
+from app.v1.released.endpoints import v1_router as released_v1_router
+from app.v1.upcoming.endpoints import v1_router as upcoming_v1_router
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Include the routers under versioned paths
-app.include_router(v1_router, prefix="/v1")
+# Create a main API router with the /api prefix
+api_router = APIRouter()
+
+# Include individual service routers under the main API router
+api_router.include_router(released_v1_router, prefix="/v1/release-notes", tags=["release-notes"])
+api_router.include_router(upcoming_v1_router, prefix="/v1/upcoming-changes", tags=["upcoming-changes"])
+
+# Include the main API router in the FastAPI app with the prefix
+app.include_router(api_router, prefix="/api")

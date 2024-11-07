@@ -16,7 +16,7 @@ install:
 	$(PIP) install -r requirements-dev.txt
 
 run:
-	$(UVICORN) app.main:app --reload
+	$(UVICORN) app.main:app --reload --port 8081
 
 clean:
 	rm -rf $(VENV_DIR)
