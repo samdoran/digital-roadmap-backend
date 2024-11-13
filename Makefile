@@ -8,18 +8,23 @@ PROJECT_DIR=$(shell pwd)
 
 default: install
 
-venv:
+.venv:
 	python3 -m venv $(VENV_DIR)
+	touch $@
 
-install:
+.install:
 	$(PIP) install -r requirements.txt
 	$(PIP) install -r requirements-dev.txt
+	touch $@
 
-run:
+install: .venv .install
+
+run: install
 	$(UVICORN) app.main:app --reload --port 8081
 
 clean:
 	rm -rf $(VENV_DIR)
+	rm -rf .install .venv
 
 lint:
 	@echo "Running lint checks..."
