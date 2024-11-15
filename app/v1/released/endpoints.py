@@ -29,7 +29,7 @@ async def get_relevant(
 
     return [
         TaggedParagraph(
-            title=paragraph["section_id"], text=paragraph["raw_text"], tag="h3", relevant=paragraph["relevant"]
+            title=paragraph["section_id"], text=paragraph["raw_text"], tag="h2", relevant=paragraph["relevant"]
         )
         for paragraph in paragraphs
     ]
