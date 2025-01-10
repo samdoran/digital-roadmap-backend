@@ -46,12 +46,12 @@ def freeze(python_version: str, requirement: Path) -> str:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--python-versions", default="3.9,3.11,3.12")
+    parser.add_argument("--python-versions", default="3.12,3.13")
 
     return parser.parse_args()
 
 
-def sort_versions(versions: list[str]) -> list[str]:
+def sort_versions(versions: str) -> list[str]:
     def list_of_parts(items):
         return [int(n) for n in items.split(".")]
 
@@ -74,7 +74,8 @@ def main():
     for future in as_completed(futures):
         print(future.result())
 
-    target_python_version = "3.9"
+    # Put requirements for the main Python version in the repo root for convenience.
+    target_python_version = "3.12"
     shutil.copy(repo_root / "requirements" / f"requirements-{target_python_version}.txt", "requirements.txt")
 
 
