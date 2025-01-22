@@ -13,7 +13,7 @@ api_router = APIRouter()
 # Include individual service routers under the main API router
 api_router.include_router(released_v1_router, prefix="/v1/release-notes", tags=["release-notes"])
 api_router.include_router(upcoming_v1_router, prefix="/v1/upcoming-changes", tags=["upcoming-changes"])
-api_router.include_router(lifecycle_v1_router, prefix="/v1/lifecycle")  # tag provided in app/v1/lifecycle/router.py
+api_router.include_router(lifecycle_v1_router, prefix="/v1/lifecycle")
 
 
 @api_router.get("/v1/ping")
