@@ -3,15 +3,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crud import get_paragraphs
-from app.database import get_db
-from app.models import TaggedParagraph
+from roadmap.crud import get_paragraphs
+from roadmap.database import get_db
+from roadmap.models import TaggedParagraph
 
 v1_router = APIRouter()
 
 
-@v1_router.get("/get-relevant-notes")
-async def get_relevant(
+@v1_router.get("/")
+async def get_release_notes(
     major: int = Query(..., description="Major version number"),
     minor: int = Query(..., description="Minor version number"),
     keywords: Optional[list[str]] = Query(None, description="List of keywords to search for"),
