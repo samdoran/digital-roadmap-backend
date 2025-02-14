@@ -1,3 +1,5 @@
+from operator import itemgetter
+
 import pytest
 
 import roadmap
@@ -51,4 +53,4 @@ import roadmap
 def test_system_specified(client, api_prefix, source_data, path, response, monkeypatch):
     monkeypatch.setattr(roadmap.v1.lifecycle.systems, "OS_DATA_MOCKED", source_data)
     data = client.get(f"{api_prefix}/lifecycle/systems{path}")
-    assert data.json() == response
+    assert data.json() == sorted(response, key=itemgetter("major", "minor"), reverse=True)
