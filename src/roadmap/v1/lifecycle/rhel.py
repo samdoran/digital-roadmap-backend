@@ -9,7 +9,9 @@ from fastapi import Header
 from fastapi import Path
 from pydantic import BaseModel
 
+from roadmap.common import get_lifecycle_type
 from roadmap.common import query_host_inventory
+from roadmap.common import sort_null_version
 from roadmap.data.systems import OS_LIFECYCLE_DATES
 from roadmap.models import HostCount
 from roadmap.models import LifecycleType
@@ -133,6 +135,9 @@ async def get_relevant_systems(
             if count_key.lifecycle == LifecycleType.e4s:
                 retirement_date = lifecycle_info.end_e4s
 
+            if count_key.lifecycle == LifecycleType.aus:
+                retirement_date = lifecycle_info.end_aus
+
         results.append(
             System(
                 name=count_key.name,
@@ -149,38 +154,3 @@ async def get_relevant_systems(
         meta=Meta(total=sum(system.count for system in results), count=len(results)),
         data=sorted(results, key=sort_null_version("lifecycle_type", "major", "minor"), reverse=True),
     )
-
-
-def get_lifecycle_type(products: list[dict[str, str]]) -> LifecycleType:
-    """Calculate lifecycle type based on the product ID.
-
-    https://downloads.corp.redhat.com/internal/products
-
-    Mainline < EUS (73) < ELS(204) < E4S < EELS
-    If 73 in installed_product --> EUS
-    If 204 in installed_product --> ELS
-    If ??? in installed_product --> EELS
-    If ??? in installed_product --> E4S
-
-    """
-    ids = {item.get("id") for item in products}
-    type = LifecycleType.mainline
-
-    if "73" in ids:
-        type = LifecycleType.eus
-
-    if "204" in ids:
-        type = LifecycleType.els
-
-    if "241" in ids:
-        type = LifecycleType.e4s
-
-    return type
-
-
-def sort_null_version(attr, /, *attrs) -> t.Callable:
-    def _getter(item):
-        # If an attribute is None, use a 0 instead of None for the purpose of sorting
-        return tuple(getattr(item, a) or 0 for a in (attr, *attrs))
-
-    return _getter

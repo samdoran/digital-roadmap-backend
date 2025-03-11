@@ -1,15 +1,18 @@
+import gzip
 import json
 import logging
 import typing as t
 import urllib.parse
 import urllib.request
 
+from datetime import date
 from pathlib import Path
 from urllib.error import HTTPError
 
 from fastapi import HTTPException
 
 from roadmap.config import SETTINGS
+from roadmap.models import LifecycleType
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -27,8 +30,9 @@ async def query_host_inventory(
         logger.debug("Running in development mode. Returning fixture response data for inventory.")
         file = Path(__file__).resolve()
         logger.debug(f"{major=} {minor=}")
-        response_data_file = file.parent.parent.parent / "tests" / "fixtures" / "inventory_response.json"
-        response_data = json.loads(response_data_file.read_text())
+        response_data_file = file.parent.parent.parent / "tests" / "fixtures" / "inventory_response_packages.json.gz"
+        with gzip.open(response_data_file) as gzfile:
+            response_data = json.load(gzfile)
         if major is not None:
             filtered_results = [
                 item
@@ -61,12 +65,12 @@ async def query_host_inventory(
         "staleness": ["fresh", "stale", "stale_warning"],
         "order_by": "updated",
         "fields[system_profile]": ",".join(
+            # TODO: Make these fields a parameter
             [
-                "arch",
-                # "dnf_modules",
+                "dnf_modules",
                 "operating_system",
                 "rhsm",
-                # "installed_packages",
+                "installed_packages",
                 "installed_products",
             ]
         ),
@@ -91,3 +95,54 @@ async def query_host_inventory(
         raise HTTPException(status_code=err.code, detail=err.msg)
 
     return data
+
+
+def get_lifecycle_type(products: list[dict[str, str]]) -> LifecycleType:
+    """Calculate lifecycle type based on the product ID.
+
+    https://downloads.corp.redhat.com/internal/products
+    https://github.com/RedHatInsights/rhsm-subscriptions/tree/main/swatch-product-configuration/src/main/resources/subscription_configs/RHEL
+
+    Mainline < EUS < E4S/EEUS < AUS
+
+    EUS --> 70, 73, 75
+    ELS --> 204
+    E4S/EEUS --> 241
+    AUS --> 251
+
+    """
+    ids = {item.get("id") for item in products}
+    type = LifecycleType.mainline
+
+    if any(id in ids for id in {"70", "73", "75"}):
+        type = LifecycleType.eus
+
+    if "204" in ids:
+        type = LifecycleType.els
+
+    if "241" in ids:
+        type = LifecycleType.e4s
+
+    if "251" in ids:
+        type = LifecycleType.aus
+
+    return type
+
+
+def sort_null_version(attr, /, *attrs) -> t.Callable:
+    def _getter(item):
+        # If an attribute is None, use a 0 instead of None for the purpose of sorting
+        return tuple(getattr(item, a) or 0 for a in (attr, *attrs))
+
+    return _getter
+
+
+def ensure_date(value: str | date):
+    """Ensure the date value is a date object."""
+    if isinstance(value, date):
+        return value
+
+    try:
+        return date.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise ValueError("Date must be in ISO 8601 format")
