@@ -22,6 +22,7 @@ from roadmap.common import sort_null_version
 from roadmap.data import APP_STREAM_MODULES
 from roadmap.data.app_streams import APP_STREAM_PACKAGES
 from roadmap.data.systems import OS_LIFECYCLE_DATES
+from roadmap.models import _calculate_support_status
 from roadmap.models import LifecycleType
 from roadmap.models import Meta
 from roadmap.models import SupportStatus
@@ -80,7 +81,7 @@ class AppStream(BaseModel):
     end_date: Date | None = None
     count: int
     rolling: bool = False
-    support_status: SupportStatus
+    support_status: SupportStatus = SupportStatus.unknown
     impl: AppStreamImplementation
 
     # Module validators are run in the order they are defined.
@@ -136,6 +137,16 @@ class AppStream(BaseModel):
                                 self.start_date = stream["start_date"]
                                 self.end_date = stream["end_date"]
                                 break
+
+        return self
+
+    @model_validator(mode="after")
+    def update_support_status(self):
+        """Validator for setting status."""
+        today = date.today()
+        self.support_status = _calculate_support_status(
+            start_date=self.start_date, end_date=self.end_date, current_date=today
+        )
 
         return self
 
