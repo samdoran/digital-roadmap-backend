@@ -13,6 +13,7 @@ objects:
       envName: ${ENV_NAME}
 
       dependencies:
+        - host-inventory
         - rbac
 
       deployments:
@@ -143,7 +144,7 @@ objects:
                 memory: ${MEMORY_REQUEST_INVENTORY_SYNC}
 
             database:
-              shareDbAppName: ${DB_NAME}
+              sharedDbAppName: ${DB_NAME}
 
             volumeMounts:
               - name: host-inventory-db
