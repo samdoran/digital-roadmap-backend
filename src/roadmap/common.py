@@ -35,30 +35,40 @@ async def query_host_inventory(
 
         logger.debug("Running in development mode. Returning fixture response data for inventory.")
         file = Path(__file__).resolve()
-        logger.debug(f"{major=} {minor=}")
-        response_data_file = file.parent.parent.parent / "tests" / "fixtures" / "inventory_response_packages.json.gz"
+        response_data_file = file.parent.parent.parent / "tests" / "fixtures" / "inventory_db_response.json.gz"
         with gzip.open(response_data_file) as gzfile:
             response_data = json.load(gzfile)
+
         if major is not None:
-            filtered_results = [
+            response_data = [
                 item
-                for item in response_data["results"]
-                if item.get("system_profile", {}).get("operating_system", {}).get("major") == major
+                for item in response_data
+                if item.get("system_profile_facts", {}).get("operating_system", {}).get("major") == major
             ]
-            response_data["results"] = filtered_results
 
         if minor is not None:
-            filtered_results = [
+            response_data = [
                 item
-                for item in response_data["results"]
-                if item.get("system_profile", {}).get("operating_system", {}).get("minor") == minor
+                for item in response_data
+                if item.get("system_profile_facts", {}).get("operating_system", {}).get("minor") == minor
             ]
-            response_data["results"] = filtered_results
 
         return response_data
 
+    query = "SELECT * FROM hbi.hosts WHERE org_id = :org_id"
+    if major is not None:
+        query = f"{query} AND system_profile_facts #>> '{{operating_system,major}}' = :major"
+
+    if minor is not None:
+        query = f"{query} AND system_profile_facts #>> '{{operating_system,minor}}' = :minor"
+
     result_set = await session.execute(
-        text("SELECT * FROM hbi.hosts WHERE org_id = :org_id;"), params={"org_id": org_id}
+        text(query),
+        params={
+            "org_id": org_id,
+            "major": str(major),
+            "minor": str(minor),
+        },
     )
     return result_set.mappings().all()
 
