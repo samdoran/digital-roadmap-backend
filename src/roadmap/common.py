@@ -1,15 +1,14 @@
+import base64
 import gzip
 import json
 import logging
 import typing as t
-import urllib.parse
-import urllib.request
 
 from datetime import date
 from pathlib import Path
-from urllib.error import HTTPError
 
-from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import text
 
 from roadmap.config import SETTINGS
 from roadmap.models import LifecycleType
@@ -18,20 +17,22 @@ from roadmap.models import LifecycleType
 logger = logging.getLogger("uvicorn.error")
 
 
-class HealtCheckFilter(logging.Filter):
+class HealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         return record.getMessage().find("/v1/ping") == -1
 
 
 # FIXME: This should be cached
 async def query_host_inventory(
-    headers: dict[str, str | None],
-    page: int = 1,
-    per_page: int = 100,
+    session: AsyncSession,
+    org_id: str,
     major: int | None = None,
     minor: int | None = None,
-) -> dict[str, t.Any]:
+):
     if SETTINGS.dev:
+        if not org_id:
+            org_id = "test"
+
         logger.debug("Running in development mode. Returning fixture response data for inventory.")
         file = Path(__file__).resolve()
         logger.debug(f"{major=} {minor=}")
@@ -56,50 +57,10 @@ async def query_host_inventory(
 
         return response_data
 
-    if not any(headers.get(value) for value in ("Authorization", "X-RH-Identity")):
-        # If we don't have a token, do not try to query the API.
-        # This could be a dev/test environment.
-        logger.info("Missing authorization header. Unable to get inventory.")
-        return {}
-
-    # Filter out missing header values
-    headers = {k: v for k, v in headers.items() if v is not None}
-    params = {
-        "per_page": per_page,
-        "page": page,
-        "staleness": ["fresh", "stale", "stale_warning"],
-        "order_by": "updated",
-        "fields[system_profile]": ",".join(
-            # TODO: Make these fields a parameter
-            [
-                "dnf_modules",
-                "operating_system",
-                "rhsm",
-                "installed_packages",
-                "installed_products",
-            ]
-        ),
-    }
-    if any(value is not None for value in (major, minor)):
-        # Build the filter value of either "{major}" or "{major}.{minor}",
-        # such as "9", or "9.5".
-        params["filter[system_profile][operating_system][RHEL][version][eq]"] = (
-            f"{major}{'.' + str(minor) if minor is not None else ''}"
-        )
-
-    req = urllib.request.Request(
-        f"{SETTINGS.host_inventory_url}/api/inventory/v1/hosts?{urllib.parse.urlencode(params, doseq=True)}",
-        headers=headers,  # pyright: ignore [reportArgumentType]
+    result_set = await session.execute(
+        text("SELECT * FROM hbi.hosts WHERE org_id = :org_id;"), params={"org_id": org_id}
     )
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            data = json.load(response)
-    except HTTPError as err:
-        logger.error(f"Problem getting systems from inventory: {err}")
-        raise HTTPException(status_code=err.code, detail=err.msg)
-
-    return data
+    return result_set.mappings().all()
 
 
 def get_lifecycle_type(products: list[dict[str, str]]) -> LifecycleType:
@@ -148,3 +109,16 @@ def ensure_date(value: str | date):
         return date.fromisoformat(value)
     except (ValueError, TypeError):
         raise ValueError("Date must be in ISO 8601 format")
+
+
+def decode_header(encoded_header: str | None) -> str:
+    # https://github.com/RedHatInsights/identity-schemas/blob/main/3scale/identities/basic.json
+    if encoded_header is None:
+        return ""
+
+    decoded_id_header = base64.b64decode(encoded_header).decode("utf-8")
+    id_header = json.loads(decoded_id_header)
+    identity = id_header.get("identity", {})
+    org_id = identity.get("org_id", "")
+
+    return org_id
