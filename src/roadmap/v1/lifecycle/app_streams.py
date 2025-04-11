@@ -278,7 +278,7 @@ async def get_relevant_app_streams(  # noqa: C901
                 name=matched_module.name,
                 stream=matched_module.stream,
                 start_date=matched_module.start_date,
-                end_date=matched_module.start_date,
+                end_date=matched_module.end_date,
                 application_stream_name=matched_module.application_stream_name,
                 os_major=os_major,
                 os_minor=os_minor if rolling else None,
