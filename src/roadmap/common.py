@@ -53,7 +53,8 @@ async def query_host_inventory(
                 if item.get("system_profile_facts", {}).get("operating_system", {}).get("minor") == minor
             ]
 
-        return response_data
+        for item in response_data:
+            yield item
 
     query = "SELECT * FROM hbi.hosts WHERE org_id = :org_id"
     if major is not None:
@@ -62,7 +63,7 @@ async def query_host_inventory(
     if minor is not None:
         query = f"{query} AND system_profile_facts #>> '{{operating_system,minor}}' = :minor"
 
-    result_set = await session.execute(
+    result = await session.stream(
         text(query),
         params={
             "org_id": org_id,
@@ -70,7 +71,8 @@ async def query_host_inventory(
             "minor": str(minor),
         },
     )
-    return result_set.mappings().all()
+    async for row in result.mappings():
+        yield row
 
 
 def get_lifecycle_type(products: list[dict[str, str]]) -> LifecycleType:
