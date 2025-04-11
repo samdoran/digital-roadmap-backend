@@ -88,20 +88,22 @@ class AppStreamCount(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
+    application_stream_name: str
     os_major: int | None
     os_minor: int | None = None
     os_lifecycle: LifecycleType | None
     stream: str
+    start_date: Date | None = None
+    end_date: Date | None = None
     impl: AppStreamImplementation
     rolling: bool = False
-    start_date: date | None = None
-    end_date: date | None = None
 
 
 class RelevantAppStream(BaseModel):
     """App stream module or package with calculated support status."""
 
     name: str
+    application_stream_name: str
     os_major: int | None
     os_minor: int | None = None
     os_lifecycle: LifecycleType | None
@@ -217,18 +219,19 @@ async def get_relevant_app_streams(  # noqa: C901
 
     logger.info(f"Getting relevant app streams for {org_id or 'UNKNOWN'}")
 
-    module_count = defaultdict(int)
     # Get a count of each module and package based on OS and OS lifecycle
+    module_count = defaultdict(int)
+    missing = defaultdict(int)
     for system in inventory_result:
         system_profile = system.get("system_profile_facts")
         if not system_profile:
-            logger.info(f"Unable to get relevant systems due to missing system profile. ID={system.get('id')}")
+            missing["system_profile"] += 1
             continue
 
         # Make sure the system is RHEL
         name = system_profile.get("operating_system", {}).get("name")
         if name != "RHEL":
-            logger.info(f"Unable to get relevant systems due to missing OS from system profile. ID={system.get('id')}")
+            missing["os"] += 1
             continue
 
         os_major = system_profile.get("operating_system", {}).get("major")
@@ -237,7 +240,7 @@ async def get_relevant_app_streams(  # noqa: C901
         dnf_modules = system_profile.get("dnf_modules", [])
 
         if not dnf_modules:
-            logger.info("Missing dnf modules")
+            missing["dnf_modules"] += 1
 
         app_stream_counts = set()
         for dnf_module in dnf_modules:
@@ -249,9 +252,34 @@ async def get_relevant_app_streams(  # noqa: C901
                 continue
 
             rolling = get_rolling_value(dnf_module["name"], dnf_module["stream"], os_major)
+
+            for app_stream_module in APP_STREAM_MODULES:
+                if (app_stream_module.name, app_stream_module.os_major, app_stream_module.stream) == (
+                    dnf_module["name"],
+                    os_major,
+                    dnf_module["stream"],
+                ):
+                    matched_module = app_stream_module
+                    break
+            else:
+                logger.debug(
+                    f"Did not find matching app stream module {app_stream_module.name}, {app_stream_module.os_major}, {app_stream_module.stream}"
+                )
+                matched_module = AppStreamEntity(
+                    name=dnf_module["name"],
+                    stream=dnf_module["stream"],
+                    start_date=None,
+                    end_date=None,
+                    application_stream_name="Unknown",
+                    impl=AppStreamImplementation.module,
+                )
+
             count_key = AppStreamCount(
-                name=dnf_module["name"],
-                stream=dnf_module["stream"],
+                name=matched_module.name,
+                stream=matched_module.stream,
+                start_date=matched_module.start_date,
+                end_date=matched_module.start_date,
+                application_stream_name=matched_module.application_stream_name,
                 os_major=os_major,
                 os_minor=os_minor if rolling else None,
                 os_lifecycle=os_lifecycle if rolling else None,
@@ -262,7 +290,7 @@ async def get_relevant_app_streams(  # noqa: C901
 
         package_names = {pkg.split(":")[0].rsplit("-", 1)[0] for pkg in system_profile.get("installed_packages", "")}
         if not package_names:
-            logger.info("Missing package names")
+            missing["package_names"] += 1
 
         for package_name in package_names:
             if app_stream_package := APP_STREAM_PACKAGES.get(package_name):
@@ -273,7 +301,10 @@ async def get_relevant_app_streams(  # noqa: C901
 
                 count_key = AppStreamCount(
                     name=app_stream_package.application_stream_name,
+                    application_stream_name=app_stream_package.application_stream_name,
                     stream=app_stream_package.stream,
+                    start_date=app_stream_package.start_date,
+                    end_date=app_stream_package.end_date,
                     os_major=os_major,
                     os_minor=os_minor if app_stream_package.rolling else None,
                     # TODO: Ask Brian if we want rolling releases to be displayed individually
@@ -283,13 +314,15 @@ async def get_relevant_app_streams(  # noqa: C901
                     os_lifecycle=os_lifecycle if app_stream_package.rolling else None,
                     rolling=app_stream_package.rolling,
                     impl=AppStreamImplementation.package,
-                    start_date=app_stream_package.start_date,
-                    end_date=app_stream_package.end_date,
                 )
                 app_stream_counts.add(count_key)
 
         for app_stream_count in app_stream_counts:
             module_count[app_stream_count] += 1
+
+    if missing:
+        missing_items = ", ".join(f"{key}: {value}" for key, value in missing.items())
+        logger.info(f"Missing {missing_items} for org {org_id or 'UNKNOWN'}")
 
     # Build response
     response = []
@@ -301,15 +334,16 @@ async def get_relevant_app_streams(  # noqa: C901
         try:
             value_to_add = RelevantAppStream(
                 name=count_key.name,
+                application_stream_name=count_key.application_stream_name,
                 stream=count_key.stream,
+                start_date=count_key.start_date,
+                end_date=count_key.end_date,
                 os_major=count_key.os_major,
                 os_minor=count_key.os_minor,
                 os_lifecycle=count_key.os_lifecycle,
                 impl=count_key.impl,
                 count=count,
                 rolling=count_key.rolling,
-                start_date=count_key.start_date,
-                end_date=count_key.end_date,
             )
             response.append(value_to_add)
         except Exception as exc:
