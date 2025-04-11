@@ -30,6 +30,15 @@ def read_json_fixture():
 
 
 @pytest.fixture
+def yield_json_fixture(read_json_fixture):
+    async def _yield_fixture(file: str):
+        for line in read_json_fixture(file):
+            yield line
+
+    return _yield_fixture
+
+
+@pytest.fixture
 def read_fixture_file():
     fixture_path = Path(__file__).parent.joinpath("fixtures").resolve()
 

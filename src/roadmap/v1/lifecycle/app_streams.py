@@ -215,14 +215,14 @@ async def get_relevant_app_streams(  # noqa: C901
 ):
     org_id = decode_header(x_rh_identity)
     # TODO: RBAC check. Is the requester allowed to access Inventory?
-    inventory_result = await query_host_inventory(session=session, org_id=org_id)
+    inventory_result = query_host_inventory(session=session, org_id=org_id)
 
     logger.info(f"Getting relevant app streams for {org_id or 'UNKNOWN'}")
 
     # Get a count of each module and package based on OS and OS lifecycle
     module_count = defaultdict(int)
     missing = defaultdict(int)
-    for system in inventory_result:
+    async for system in inventory_result:
         system_profile = system.get("system_profile_facts")
         if not system_profile:
             missing["system_profile"] += 1

@@ -37,8 +37,8 @@ def test_rhel_lifecycle_major_minor_version(client, api_prefix, params):
     assert (major, minor) == tuple(int(v) for v in params.split("/"))
 
 
-def test_rhel_relevant(client, api_prefix, mocker, read_json_fixture):
-    mock_response = read_json_fixture("inventory_db_response.json.gz")
+def test_rhel_relevant(client, api_prefix, mocker, yield_json_fixture):
+    mock_response = yield_json_fixture("inventory_db_response.json.gz")
     mocker.patch("roadmap.v1.lifecycle.rhel.query_host_inventory", return_value=mock_response)
 
     response = client.get(f"{api_prefix}/relevant/lifecycle/rhel")

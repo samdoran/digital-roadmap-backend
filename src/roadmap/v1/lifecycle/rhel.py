@@ -94,10 +94,10 @@ async def get_relevant_systems(
 ) -> RelevantSystemsResponse:
     org_id = decode_header(x_rh_identity)
     # TODO: RBAC check. Is the requester allowed to access Inventory?
-    systems_response = await query_host_inventory(session=session, org_id=org_id, major=major, minor=minor)
+    systems_response = query_host_inventory(session=session, org_id=org_id, major=major, minor=minor)
 
     system_counts = defaultdict(int)
-    for result in systems_response:
+    async for result in systems_response:
         system_profile = result.get("system_profile_facts")
         if not system_profile:
             logger.info(f"Unable to get relevant systems due to missing system profile. ID={result.get('id')}")
