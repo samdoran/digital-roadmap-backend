@@ -1,3 +1,7 @@
+import os
+
+from app_common_python import isClowderEnabled
+from app_common_python import loadConfig
 from pydantic import PostgresDsn
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
@@ -23,5 +27,35 @@ class Settings(BaseSettings):
             url=f"postgresql+psycopg://{self.db_user}:{self.db_password.get_secret_value()}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
+    @classmethod
+    def create(cls):
+        """
+        Create a settings object populated from presets, env and Clowder.
 
-SETTINGS = Settings()
+        Settings precedence:
+        * Clowder's injected configuration json.
+        * Environment variables with ROADMAP prefix. ex: ROADMAP_DB_NAME
+        * Default values defined in the class attributes.
+
+        """
+        # True if env var ACG_CONFIG is set.
+        if isClowderEnabled():
+            # ACG_CONFIG must refer to a json file.
+            # Its contents populate LoadedConfig.
+
+            # This is how Clowder docs tell you to do it:
+            # db = LoadedConfig.database
+            # However, that confounds our testing, so instead we do this:
+            db = loadConfig(os.environ.get("ACG_CONFIG")).database
+            return cls(
+                db_name=db.name,
+                db_user=db.username,
+                db_password=SecretStr(db.password),
+                db_host=db.hostname,
+                db_port=db.port,
+            )
+
+        return cls()
+
+
+SETTINGS = Settings.create()
