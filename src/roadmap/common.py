@@ -3,10 +3,14 @@ import gzip
 import json
 import logging
 import typing as t
+import urllib.parse
+import urllib.request
 
 from datetime import date
 from pathlib import Path
+from urllib.error import HTTPError
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
@@ -22,10 +26,62 @@ class HealthCheckFilter(logging.Filter):
         return record.getMessage().find("/v1/ping") == -1
 
 
+async def query_rbac(
+    x_rh_identity: str | None,
+) -> list[dict[t.Any, t.Any]]:
+    if SETTINGS.dev:
+        return [
+            {
+                "permission": "inventory:*:*",
+                "resourceDefinitions": [],
+            }
+        ]
+
+    params = {
+        "application": "inventory",
+        "limit": 1000,
+    }
+
+    headers = {"X-RH-Identity": x_rh_identity} if x_rh_identity else {}
+    req = urllib.request.Request(
+        f"{SETTINGS.rbac_url}/api/rbac/v1/access/?{urllib.parse.urlencode(params, doseq=True)}",
+        headers=headers,
+    )
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            data = json.load(response)
+    except HTTPError as err:
+        logger.error(f"Problem querying RBAC: {err}")
+        raise HTTPException(status_code=err.code, detail=err.msg)
+
+    return data.get("data", [])
+
+
+async def check_inventory_access(permissions: list[dict[t.Any, t.Any]]) -> tuple[bool, list[str]]:
+    """Check the given permissions for inventory access.
+
+    Return a boolean as well as any detailed access definitions.
+    """
+    inventory_access_perms = {"inventory:*:*", "inventory:hosts:read"}
+
+    has_access = False
+    resource_definitions = []
+    for permission in permissions:
+        if perm := permission["resourceDefinitions"]:
+            resource_definitions.append(*perm)
+        else:
+            if permission["permission"] in inventory_access_perms:
+                has_access = True
+
+    return has_access, resource_definitions
+
+
 # FIXME: This should be cached
 async def query_host_inventory(
     session: AsyncSession,
     org_id: str,
+    groups: list[str] | None = None,
     major: int | None = None,
     minor: int | None = None,
 ):
@@ -57,6 +113,10 @@ async def query_host_inventory(
             yield item
 
         return
+
+    if groups:
+        # TODO: Implement group filtering
+        raise HTTPException(501, detail="Group filtering is not yet implemented")
 
     query = "SELECT * FROM hbi.hosts WHERE org_id = :org_id"
     if major is not None:
