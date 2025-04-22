@@ -53,21 +53,11 @@ Create a virtual environment, install the requirements, and run the server.
 
 ```shell
 make install
-make start-db run
+make start-db load-host-data run
 ```
 
 This runs a server using the default virtual environment. Documentation can be found at  `http://127.0.0.1:8000/docs`.
 
-### Relevant APIs
-
-The `/relevant/` APIs query [host inventory] in order to return relevant results. To avoid querying the inventory API and return fixture data, set `ROADMAP_DEV=1` in the environment.
-
-```
-export ROADMAP_DEV=1
-make run
-```
-
-This will return data from [tests/fixtures/](tests/fixtures), making it easy to change the response for testing and development.
 
 ### Getting a token for accessing Red Hat APIs
 
@@ -86,11 +76,12 @@ http localhost:8000/api/roadmap/v1/relevant/lifecycle/rhel/ \
 ```
 
 ## Developer Guide
-Install the developer tools and run the server.
+Install the developer tools, load test data, and run the server. Setting `ROADMAP_DEV=1` will avoid querying RBAC and query inventory data in the local database.
 
 ```shell
+export ROADMAP_DEV=1
 make install-dev
-make start-db run
+make start-db load-host-data run
 ```
 
 Alternatively you may create your own virtual environment, install the requirements, and run the server manually.
