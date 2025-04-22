@@ -5,7 +5,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from roadmap.common import query_host_inventory
+from roadmap.common import decode_header
 from roadmap.common import query_rbac
 from roadmap.config import Settings
 from roadmap.data.app_streams import AppStreamEntity
@@ -88,7 +88,7 @@ def test_get_app_stream_module_info_not_found(api_prefix, client):
     assert len(data) == 0
 
 
-def test_get_relevant_app_stream(api_prefix, client, read_json_fixture):
+def test_get_relevant_app_stream(api_prefix, client):
     async def query_rbac_override():
         return [
             {
@@ -97,12 +97,12 @@ def test_get_relevant_app_stream(api_prefix, client, read_json_fixture):
             }
         ]
 
-    async def query_host_inventory_override():
-        return read_json_fixture("inventory_db_response.json.gz")
+    async def decode_header_override():
+        return "1234"
 
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[query_rbac] = query_rbac_override
-    client.app.dependency_overrides[query_host_inventory] = query_host_inventory_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
     result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
     data = result.json().get("data", "")
 
@@ -128,7 +128,7 @@ def test_get_relevant_app_stream_error(api_prefix, client, mocker):
     assert detail == "Raised intentionally"
 
 
-def test_get_relevant_app_stream_error_building_response(api_prefix, client, read_json_fixture, mocker):
+def test_get_relevant_app_stream_error_building_response(api_prefix, client, mocker):
     async def query_rbac_override():
         return [
             {
@@ -137,12 +137,12 @@ def test_get_relevant_app_stream_error_building_response(api_prefix, client, rea
             }
         ]
 
-    async def query_host_inventory_override():
-        return read_json_fixture("inventory_db_response.json.gz")
+    async def decode_header_override():
+        return "1234"
 
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[query_rbac] = query_rbac_override
-    client.app.dependency_overrides[query_host_inventory] = query_host_inventory_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
     mocker.patch("roadmap.v1.lifecycle.app_streams.RelevantAppStream", side_effect=ValueError("Raised intentionally"))
 
     result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
