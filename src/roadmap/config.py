@@ -1,9 +1,11 @@
 import os
 
 from functools import lru_cache
+from pathlib import Path
 
 from app_common_python import isClowderEnabled
 from app_common_python import loadConfig
+from pydantic import FilePath
 from pydantic import PostgresDsn
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
@@ -21,6 +23,7 @@ class Settings(BaseSettings):
     debug: bool = False
     dev: bool = False
     host_inventory_url: str = "https://console.redhat.com"
+    upcoming_json_path: FilePath = Path(__file__).parent.joinpath("data").joinpath("upcoming.json")
     test: bool = False
     rbac_hostname: str = ""
     rbac_port: int = 8000
