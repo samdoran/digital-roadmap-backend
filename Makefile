@@ -62,6 +62,10 @@ stop-db: check-container-runtime
 	@$(CONTAINER_RUNTIME) stop roadmap-data > /dev/null 2>&1 || true
 	@sleep 0.1
 
+.PHONY: load-host-data
+load-host-data:
+	@PYTHONPATH=./src/ $(VENV_PYTHON) $(PROJECT_DIR)/scripts/load_host_data.py
+
 .PHONY: run
 run:
 	$(VENV_DIR)/bin/uvicorn --app-dir src "roadmap.main:app" --reload --reload-dir src --host 127.0.0.1 --port 8000 --log-level debug
