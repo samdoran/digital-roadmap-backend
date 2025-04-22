@@ -1,6 +1,6 @@
 import pytest
 
-from roadmap.common import query_host_inventory
+from roadmap.common import decode_header
 from roadmap.common import query_rbac
 from roadmap.models import System
 
@@ -41,7 +41,7 @@ def test_rhel_lifecycle_major_minor_version(client, api_prefix, params):
     assert (major, minor) == tuple(int(v) for v in params.split("/"))
 
 
-def test_rhel_relevant(client, api_prefix, read_json_fixture):
+def test_rhel_relevant(client, api_prefix):
     async def query_rbac_override():
         return [
             {
@@ -50,12 +50,12 @@ def test_rhel_relevant(client, api_prefix, read_json_fixture):
             }
         ]
 
-    async def query_host_inventory_override():
-        return read_json_fixture("inventory_db_response.json.gz")
+    async def decode_header_override():
+        return "1234"
 
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[query_rbac] = query_rbac_override
-    client.app.dependency_overrides[query_host_inventory] = query_host_inventory_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
 
     response = client.get(f"{api_prefix}/relevant/lifecycle/rhel")
     data = response.json()["data"]

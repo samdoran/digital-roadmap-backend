@@ -47,6 +47,9 @@ jobs:
       - name: Run PostgreSQL
         run: make start-db
 
+      - name: Load test data
+        run: make install-dev load-host-data
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

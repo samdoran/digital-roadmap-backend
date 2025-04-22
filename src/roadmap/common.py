@@ -1,5 +1,4 @@
 import base64
-import gzip
 import json
 import logging
 import typing as t
@@ -7,7 +6,6 @@ import urllib.parse
 import urllib.request
 
 from datetime import date
-from pathlib import Path
 from urllib.error import HTTPError
 
 from fastapi import Depends
@@ -116,28 +114,6 @@ async def query_host_inventory(
     if settings.dev:
         if not org_id:
             org_id = "1234"
-
-        logger.debug("Running in development mode. Returning fixture response data for inventory.")
-        file = Path(__file__).resolve()
-        response_data_file = file.parent.parent.parent / "tests" / "fixtures" / "inventory_db_response.json.gz"
-        with gzip.open(response_data_file) as gzfile:
-            response_data = json.load(gzfile)
-
-        if major is not None:
-            response_data = [
-                item
-                for item in response_data
-                if item.get("system_profile_facts", {}).get("operating_system", {}).get("major") == major
-            ]
-
-        if minor is not None:
-            response_data = [
-                item
-                for item in response_data
-                if item.get("system_profile_facts", {}).get("operating_system", {}).get("minor") == minor
-            ]
-
-        return response_data
 
     if groups:
         # TODO: Implement group filtering
