@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import gzip
+import sys
 
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from time import sleep
 from uuid import uuid4
 
 from app_common_python import json
@@ -50,10 +52,26 @@ class Host(HBI):
     last_check_in: Mapped[TIMESTAMP] = mapped_column(TIMESTAMP())
 
 
+def wait_for_database(engine):
+    count = 0
+    max = 10
+    while count < max:
+        try:
+            engine.connect()
+            return
+        except Exception:
+            print("Waiting for database connection...")
+            sleep(3)
+            count += 1
+
+    sys.exit("Unable to connect to database")
+
+
 def main():
     fake = Faker()
     settings = Settings.create()
-    engine = create_engine(str(settings.database_url), echo=True)
+    engine = create_engine(str(settings.database_url), echo=True, pool_pre_ping=True, pool_timeout=60)
+    wait_for_database(engine)
     with engine.connect() as connection:
         # Create the schema
         connection.execute(CreateSchema("hbi", if_not_exists=True))
