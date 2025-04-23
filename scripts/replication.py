@@ -113,7 +113,7 @@ def check_or_create_view(logger, engine):
 
 def check_or_create_indexes(logger, engine):
     db_indexes = [
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS hostas_account_index ON hbi.hosts (account)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS hosts_account_index ON hbi.hosts (account)",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS hosts_org_id_index ON hbi.hosts (org_id)",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS hosts_display_name_index ON hbi.hosts (display_name)",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS hosts_tags_index ON hbi.hosts USING GIN (tags JSONB_PATH_OPS)",
@@ -135,7 +135,7 @@ def check_or_create_hosts_tables(logger, session):
     if not _db_exists(logger, session, check_table):
         logger.info("hbi.hosts not found.")
         hosts_table_create = """CREATE TABLE hbi.hosts (
-            id uuid NOT NULL,
+            id uuid NOT NULL PRIMARY KEY,
             account character varying(10),
             display_name character varying(200),
             created_on timestamp with time zone NOT NULL,
