@@ -83,7 +83,7 @@ relevant = APIRouter(
 @relevant.get("/{major}/{minor}")
 @relevant.get("/{major}")
 @relevant.get("")
-async def get_relevant_systems(  # noqa: C901
+async def get_relevant_systems(
     org_id: t.Annotated[str, Depends(decode_header)],
     systems: t.Annotated[t.Any, Depends(query_host_inventory)],
 ) -> RelevantSystemsResponse:
