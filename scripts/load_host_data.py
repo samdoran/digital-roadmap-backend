@@ -69,6 +69,7 @@ def wait_for_database(engine):
 
 def main():
     fake = Faker()
+    Faker.seed(8675309)  # Generate consistent data
     settings = Settings.create()
     engine = create_engine(str(settings.database_url), echo=True, pool_pre_ping=True, pool_timeout=60)
     wait_for_database(engine)
@@ -94,7 +95,7 @@ def main():
         records.append(
             Host(
                 id=id,
-                display_name=f"{id.hex[:6]}.foo.redhat.com",
+                display_name=fake.unique.hostname(),
                 created_on=init_date,
                 modified_on=init_date,
                 system_profile_facts=host_data[n].get("system_profile_facts", {}),
