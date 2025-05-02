@@ -163,6 +163,32 @@ def test_get_relevant_app_stream_no_rbac_access(api_prefix, client):
     assert result.status_code == 403
 
 
+def test_get_relevant_app_stream_resource_definitions(api_prefix, client):
+    async def query_rbac_override():
+        return [
+            {
+                "permission": "inventory:*:*",
+                "resourceDefinitions": [
+                    {
+                        "attributeFilter": {
+                            "key": "group_id",
+                            "value": ["ebeaf62a-9713-4dad-8d63-32b51cadbda3"],
+                            "operation": "in",
+                        },
+                    }
+                ],
+            }
+        ]
+
+    client.app.dependency_overrides = {}
+    client.app.dependency_overrides[query_rbac] = query_rbac_override
+
+    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
+
+    assert result.status_code == 501
+    assert "not yet implemented" in result.json()["detail"].casefold()
+
+
 def test_get_revelent_app_stream_related(api_prefix, client):
     async def query_rbac_override():
         return [
