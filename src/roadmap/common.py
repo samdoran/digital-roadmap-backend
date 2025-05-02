@@ -186,3 +186,23 @@ def ensure_date(value: str | date):
         return date.fromisoformat(value)
     except (ValueError, TypeError):
         raise ValueError("Date must be in ISO 8601 format")
+
+
+def _normalize_version(stream: str) -> t.Tuple[int, int, int]:
+    """Returns a tuple of major, minor and micro for a given stream."""
+    if stream.casefold() == "rhel8":
+        return (8, 0, 0)
+    versions = stream.split(".")
+    versions.reverse()
+    major = int(versions.pop())
+    minor = int(versions.pop()) if versions else 0
+    micro = int(versions.pop()) if versions else 0
+    return (major, minor, micro)
+
+
+def streams_lt(a: str, b: str):
+    """Return True if stream a is less than stream b."""
+    try:
+        return _normalize_version(a) < _normalize_version(b)
+    except ValueError:
+        return a < b

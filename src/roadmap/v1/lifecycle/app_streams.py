@@ -1,5 +1,4 @@
 import logging
-import string
 import typing as t
 
 from collections import defaultdict
@@ -13,14 +12,14 @@ from fastapi import Query
 from fastapi.exceptions import HTTPException
 from pydantic import AfterValidator
 from pydantic import BaseModel
-from pydantic import ConfigDict
 from pydantic import model_validator
+from sqlalchemy.ext.asyncio.result import AsyncResult
 
 from roadmap.common import decode_header
 from roadmap.common import ensure_date
-from roadmap.common import get_lifecycle_type
 from roadmap.common import query_host_inventory
 from roadmap.common import sort_attrs
+from roadmap.common import streams_lt
 from roadmap.data.app_streams import APP_STREAM_MODULES_BY_KEY
 from roadmap.data.app_streams import APP_STREAM_MODULES_PACKAGES
 from roadmap.data.app_streams import APP_STREAM_PACKAGES
@@ -28,7 +27,6 @@ from roadmap.data.app_streams import AppStreamEntity
 from roadmap.data.app_streams import AppStreamImplementation
 from roadmap.data.app_streams import OS_MAJORS_BY_APP_NAME
 from roadmap.models import _calculate_support_status
-from roadmap.models import LifecycleType
 from roadmap.models import Meta
 from roadmap.models import SupportStatus
 
@@ -37,59 +35,6 @@ logger = logging.getLogger("uvicorn.error")
 
 Date = t.Annotated[str | date | None, AfterValidator(ensure_date)]
 MajorVersion = t.Annotated[int | None, Path(description="Major version number", ge=8, le=10)]
-
-
-def get_display_name(app_stream: AppStreamEntity) -> str:
-    """Create a normalized name field for presentation"""
-
-    special_case = {
-        "apache httpd": "Apache HTTPD",
-        "freeradius": "FreeRADIUS",
-        "llvm": "LLVM",
-        "mariadb": "MariaDB",
-        "mod_auth_openidc for apache": "Mod Auth OpenIDC for Apache",
-        "mysql": "MySQL",
-        "nginx": "NGINX",
-        "node.js": "Node.js",
-        "nodejs": "Node.js",
-        "openjdk": "OpenJDK",
-        "osinfo-db": "OSInfo DB",
-        "php": "PHP",
-        "postgresql": "PostgreSQL",
-        "rhn-tools": "RHN Tools",
-    }
-    display_name = app_stream.name
-    if app_stream.application_stream_name and app_stream.application_stream_name != "Unknown":
-        display_name = app_stream.application_stream_name
-
-    # Ensure the version number is in the display name
-    if display_name[-1] not in (string.digits):
-        version = ".".join(app_stream.stream.split(".")[:2])
-
-        # Avoid putting a duplicate string at the end
-        if version and display_name[-len(version) :].lower() != version:
-            display_name = f"{display_name.rstrip()} {version}"
-
-    # Correct capitalization
-    for name, cased_name in special_case.items():
-        lower_name = display_name.lower()
-        if name in lower_name:
-            display_name = lower_name.replace(name, cased_name)
-            break
-    else:
-        display_name = display_name.title()
-
-    display_name = display_name.replace("-", " ").replace("Rhel", "RHEL")
-
-    return display_name
-
-
-def get_rolling_value(name: str, stream: str, os_major: int) -> bool:
-    try:
-        return APP_STREAM_MODULES_BY_KEY[(name, os_major, stream)].rolling
-    except KeyError:
-        logger.debug(f"No match for rolling RHEL {os_major} {name} {stream}")
-        return False
 
 
 def get_module_os_major_versions(name: str) -> set[int]:
@@ -120,23 +65,6 @@ async def filter_params(
 AppStreamFilter = t.Annotated[dict, Depends(filter_params)]
 
 
-class AppStreamKey(BaseModel):
-    """All these things must match in order for a module to be considered the same."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str
-    display_name: str
-    application_stream_name: str
-    os_major: int | None
-    os_minor: int | None = None
-    os_lifecycle: LifecycleType | None
-    start_date: Date | None = None
-    end_date: Date | None = None
-    impl: AppStreamImplementation
-    rolling: bool = False
-
-
 class RelevantAppStream(BaseModel):
     """App stream module or package with calculated support status."""
 
@@ -145,7 +73,6 @@ class RelevantAppStream(BaseModel):
     display_name: str
     os_major: int | None
     os_minor: int | None = None
-    os_lifecycle: LifecycleType | None
     start_date: Date | None = None
     end_date: Date | None = None
     count: int
@@ -153,6 +80,7 @@ class RelevantAppStream(BaseModel):
     support_status: SupportStatus = SupportStatus.unknown
     impl: AppStreamImplementation
     systems: list[UUID]
+    related: bool = False
 
     @model_validator(mode="after")
     def update_support_status(self):
@@ -240,18 +168,55 @@ async def get_app_stream_names(
     }
 
 
-## Relevant ##
-relevant = APIRouter(
-    prefix="/relevant/lifecycle/app-streams",
-    tags=["Relevant", "App Streams"],
-)
+class AppStreamKey(BaseModel):
+    """Wraps AppStreamEntitys to facilitate grouping by name."""
+
+    name: str
+    app_stream_entity: AppStreamEntity
+
+    def __hash__(self):
+        return hash(
+            (
+                self.name,
+                self.app_stream_entity.display_name,
+                self.app_stream_entity.application_stream_name,
+                self.app_stream_entity.os_major,
+                self.app_stream_entity.os_minor,
+                self.app_stream_entity.start_date,
+                self.app_stream_entity.end_date,
+                self.app_stream_entity.impl,
+                self.app_stream_entity.rolling,
+            )
+        )
+
+    def __eq__(self, other):
+        return isinstance(other, AppStreamKey) and self.__hash__() == other.__hash__()
 
 
-@relevant.get("", response_model=RelevantAppStreamsResponse)
-async def get_relevant_app_streams(
+def related_app_streams(app_streams: t.Iterable[AppStreamKey]) -> set[AppStreamKey]:
+    """Return unique list of related apps that do not appear in app_streams."""
+    relateds = set()
+    for app_stream_key in app_streams:
+        for app in APP_STREAM_MODULES_PACKAGES:
+            add = False
+            if app.display_name == app_stream_key.app_stream_entity.display_name:
+                if app.start_date and app_stream_key.app_stream_entity.start_date:
+                    if app.start_date > app_stream_key.app_stream_entity.start_date:
+                        add = True
+                elif streams_lt(app_stream_key.app_stream_entity.stream, app.stream):
+                    if app.end_date is None or app.end_date > date.today():
+                        add = True
+            if add:
+                relateds.add(AppStreamKey(app_stream_entity=app, name=app_stream_key.name))
+
+    return relateds.difference(app_streams)
+
+
+async def systems_by_app_stream(
     org_id: t.Annotated[str, Depends(decode_header)],
-    systems: t.Annotated[t.Any, Depends(query_host_inventory)],
-):
+    systems: t.Annotated[AsyncResult, Depends(query_host_inventory)],
+) -> dict[AppStreamKey, list[UUID]]:
+    """Return a mapping of AppStreams to ids of systems using that stream."""
     logger.info(f"Getting relevant app streams for {org_id or 'UNKNOWN'}")
 
     missing = defaultdict(int)
@@ -267,17 +232,13 @@ async def get_relevant_app_streams(
             continue
 
         os_major = system_profile.get("operating_system", {}).get("major")
-        os_minor = system_profile.get("operating_system", {}).get("minor")
-        os_lifecycle = get_lifecycle_type(system_profile.get("installed_products", [{}]))
         dnf_modules = system_profile.get("dnf_modules", [])
 
         if not dnf_modules:
             missing["dnf_modules"] += 1
 
-        module_app_streams = app_streams_from_modules(dnf_modules, os_major, os_minor, os_lifecycle)
-        package_app_streams = app_streams_from_packages(
-            system_profile.get("installed_packages", ""), os_major, os_minor, os_lifecycle
-        )
+        module_app_streams = app_streams_from_modules(dnf_modules, os_major)
+        package_app_streams = app_streams_from_packages(system_profile.get("installed_packages", ""), os_major)
 
         if not package_app_streams:
             missing["package_names"] += 1
@@ -292,46 +253,12 @@ async def get_relevant_app_streams(
         missing_items = ", ".join(f"{key}: {value}" for key, value in missing.items())
         logger.info(f"Missing {missing_items} for org {org_id or 'UNKNOWN'}")
 
-    response = []
-    for app_stream, systems in systems_by_stream.items():
-        # Omit rolling app streams.
-        if app_stream.rolling:
-            continue
-
-        try:
-            response.append(
-                RelevantAppStream(
-                    name=app_stream.name,
-                    display_name=app_stream.display_name,
-                    application_stream_name=app_stream.application_stream_name,
-                    start_date=app_stream.start_date,
-                    end_date=app_stream.end_date,
-                    os_major=app_stream.os_major,
-                    os_minor=app_stream.os_minor,
-                    os_lifecycle=app_stream.os_lifecycle,
-                    impl=app_stream.impl,
-                    count=len(systems),
-                    rolling=app_stream.rolling,
-                    systems=systems,
-                )
-            )
-        except Exception as exc:
-            raise HTTPException(detail=str(exc), status_code=400)
-
-    return {
-        "meta": {
-            "count": len(response),
-            "total": sum(item.count for item in response),
-        },
-        "data": sorted(response, key=sort_attrs("name", "os_major", "os_minor", "os_lifecycle")),
-    }
+    return systems_by_stream
 
 
 def app_streams_from_modules(
     dnf_modules: list[dict],
     os_major: str,
-    os_minor: str,
-    os_lifecycle: str,
 ) -> set[AppStreamKey]:
     """Return a set of normalized AppStreamKey objects for the given modules"""
     app_streams = set()
@@ -357,21 +284,7 @@ def app_streams_from_modules(
                 impl=AppStreamImplementation.module,
             )
 
-        display_name = get_display_name(matched_module)
-        rolling = get_rolling_value(name, stream, os_major)
-        app_key = AppStreamKey(
-            name=name,
-            display_name=display_name,
-            start_date=matched_module.start_date,
-            end_date=matched_module.end_date,
-            application_stream_name=matched_module.application_stream_name,
-            os_major=os_major,
-            os_minor=os_minor if rolling else None,
-            os_lifecycle=os_lifecycle if rolling else None,
-            rolling=rolling,
-            impl=AppStreamImplementation.module,
-        )
-        app_streams.add(app_key)
+        app_streams.add(AppStreamKey(app_stream_entity=matched_module, name=name))
 
     return app_streams
 
@@ -379,32 +292,88 @@ def app_streams_from_modules(
 def app_streams_from_packages(
     package_names_string: str,
     os_major: str,
-    os_minor: str,
-    os_lifecycle: str,
 ) -> set[AppStreamKey]:
     package_names = {pkg.split(":")[0].rsplit("-", 1)[0] for pkg in package_names_string}
 
     app_streams = set()
     for package_name in package_names:
         if app_stream_package := APP_STREAM_PACKAGES.get(package_name):
-            # Ensure os_major on app stream package is same as os_major of system
-            # Before creating an AppStreamKey, make sure it's an actual package available for that system
-            if app_stream_package.os_major != os_major:
-                continue
-
-            display_name = get_display_name(app_stream_package)
-            app_key = AppStreamKey(
-                name=app_stream_package.application_stream_name,
-                display_name=display_name,
-                application_stream_name=app_stream_package.application_stream_name,
-                start_date=app_stream_package.start_date,
-                end_date=app_stream_package.end_date,
-                os_major=os_major,
-                os_minor=os_minor if app_stream_package.rolling else None,
-                os_lifecycle=os_lifecycle if app_stream_package.rolling else None,
-                rolling=app_stream_package.rolling,
-                impl=AppStreamImplementation.package,
-            )
-            app_streams.add(app_key)
+            if app_stream_package.os_major == os_major:
+                app_streams.add(
+                    AppStreamKey(app_stream_entity=app_stream_package, name=app_stream_package.application_stream_name)
+                )
 
     return app_streams
+
+
+## Relevant ##
+relevant = APIRouter(
+    prefix="/relevant/lifecycle/app-streams",
+    tags=["Relevant", "App Streams"],
+)
+
+
+@relevant.get("", response_model=RelevantAppStreamsResponse)
+async def get_relevant_app_streams(
+    systems_by_stream: t.Annotated[dict[AppStreamKey, list[UUID]], Depends(systems_by_app_stream)],
+    related: bool = False,
+):
+    relevant_app_streams = []
+    for app_stream, systems in systems_by_stream.items():
+        # Omit rolling app streams.
+        if app_stream.app_stream_entity.rolling:
+            continue
+
+        try:
+            relevant_app_streams.append(
+                RelevantAppStream(
+                    name=app_stream.name,
+                    display_name=app_stream.app_stream_entity.display_name,
+                    application_stream_name=app_stream.app_stream_entity.application_stream_name,
+                    start_date=app_stream.app_stream_entity.start_date,
+                    end_date=app_stream.app_stream_entity.end_date,
+                    os_major=app_stream.app_stream_entity.os_major,
+                    os_minor=app_stream.app_stream_entity.os_minor,
+                    impl=app_stream.app_stream_entity.impl,
+                    count=len(systems),
+                    rolling=app_stream.app_stream_entity.rolling,
+                    systems=systems,
+                    related=False,
+                )
+            )
+        except Exception as exc:
+            raise HTTPException(detail=str(exc), status_code=400)
+
+    if related:
+        for app_stream in related_app_streams(systems_by_stream.keys()):
+            # Omit rolling app streams.
+            if app_stream.app_stream_entity.rolling:
+                continue
+
+            try:
+                relevant_app_streams.append(
+                    RelevantAppStream(
+                        name=app_stream.name,
+                        display_name=app_stream.app_stream_entity.display_name,
+                        application_stream_name=app_stream.app_stream_entity.application_stream_name,
+                        start_date=app_stream.app_stream_entity.start_date,
+                        end_date=app_stream.app_stream_entity.end_date,
+                        os_major=app_stream.app_stream_entity.os_major,
+                        os_minor=app_stream.app_stream_entity.os_minor,
+                        impl=app_stream.app_stream_entity.impl,
+                        count=0,
+                        rolling=app_stream.app_stream_entity.rolling,
+                        systems=[],
+                        related=True,
+                    )
+                )
+            except Exception as exc:
+                raise HTTPException(detail=str(exc), status_code=400)
+
+    return {
+        "meta": {
+            "count": len(relevant_app_streams),
+            "total": sum(item.count for item in relevant_app_streams),
+        },
+        "data": sorted(relevant_app_streams, key=sort_attrs("name", "os_major", "os_minor")),
+    }

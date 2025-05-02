@@ -1,3 +1,4 @@
+import string
 import typing as t
 
 from collections import defaultdict
@@ -16,6 +17,22 @@ from roadmap.data.systems import OS_LIFECYCLE_DATES
 
 
 Date = t.Annotated[str | date, AfterValidator(ensure_date)]
+_DISPLAY_NAME_SPECIAL_CASES = {
+    "apache httpd": "Apache HTTPD",
+    "freeradius": "FreeRADIUS",
+    "llvm": "LLVM",
+    "mariadb": "MariaDB",
+    "mod_auth_openidc for apache": "Mod Auth OpenIDC for Apache",
+    "mysql": "MySQL",
+    "nginx": "NGINX",
+    "node.js": "Node.js",
+    "nodejs": "Node.js",
+    "openjdk": "OpenJDK",
+    "osinfo-db": "OSInfo DB",
+    "php": "PHP",
+    "postgresql": "PostgreSQL",
+    "rhn-tools": "RHN Tools",
+}
 
 
 class AppStreamImplementation(StrEnum):
@@ -28,6 +45,7 @@ class AppStreamEntity(BaseModel):
     """An application stream module or package."""
 
     name: str = Field(min_length=1)
+    display_name: str = ""
     application_stream_name: str
     stream: str
     start_date: Date | None = None
@@ -74,6 +92,35 @@ class AppStreamEntity(BaseModel):
                 self.os_minor = int(self.initial_product_version.split(".")[1])
             except IndexError:
                 self.os_minor = None
+
+        return self
+
+    @model_validator(mode="after")
+    def set_display_name(self):
+        """Create a normalized name field for presentation"""
+
+        display_name = self.name
+        if self.application_stream_name and self.application_stream_name != "Unknown":
+            display_name = self.application_stream_name
+
+        # Ensure the version number is in the display name
+        if display_name[-1] not in (string.digits):
+            version = ".".join(self.stream.split(".")[:2])
+
+            # Avoid putting a duplicate string at the end
+            if version and display_name[-len(version) :].lower() != version:
+                display_name = f"{display_name.rstrip()} {version}"
+
+        # Correct capitalization
+        lower_name = display_name.lower()
+        for name, cased_name in _DISPLAY_NAME_SPECIAL_CASES.items():
+            if name in lower_name:
+                display_name = lower_name.replace(name, cased_name)
+                break
+        else:
+            display_name = display_name.title()
+
+        self.display_name = display_name.replace("-", " ").replace("Rhel", "RHEL")
 
         return self
 
