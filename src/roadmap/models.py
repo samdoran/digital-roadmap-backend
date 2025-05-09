@@ -40,17 +40,11 @@ class HostCount(BaseModel):
     lifecycle: LifecycleType
 
 
-class System(BaseModel):
+class Lifecycle(BaseModel):
     name: str
-    display_name: str = ""
-    major: int
-    minor: int | None = None
-    release_date: date | t.Literal["Unknown"] | None
-    retirement_date: date | t.Literal["Unknown"] | None
+    start_date: date
+    end_date: date
     support_status: SupportStatus = SupportStatus.unknown
-    count: int = 0
-    lifecycle_type: LifecycleType
-    related: bool = False
 
     @model_validator(mode="after")
     def update_support_status(self):
@@ -62,10 +56,22 @@ class System(BaseModel):
         """
         today = date.today()
         self.support_status = _calculate_support_status(
-            start_date=self.release_date, end_date=self.retirement_date, current_date=today
+            start_date=self.start_date, end_date=self.end_date, current_date=today
         )
 
         return self
+
+
+class System(Lifecycle):
+    name: str
+    display_name: str = ""
+    major: int
+    minor: int | None = None
+    start_date: date | t.Literal["Unknown"] | None
+    end_date: date | t.Literal["Unknown"] | None
+    count: int = 0
+    lifecycle_type: LifecycleType
+    related: bool = False
 
     @model_validator(mode="after")
     def set_display_name(self):
@@ -75,20 +81,14 @@ class System(BaseModel):
         return self
 
 
-class Lifecycle(BaseModel):
-    name: str
-    start: date
-    end: date
-
-
 class RHELLifecycle(Lifecycle):
     name: str = "RHEL"
     display_name: str = ""
     major: int
     minor: int | None = None
-    end_e4s: date | None = None
-    end_els: date | None = None
-    end_eus: date | None = None
+    end_date_e4s: date | None = None
+    end_date_els: date | None = None
+    end_date_eus: date | None = None
 
     @model_validator(mode="after")
     def set_display_name(self):
