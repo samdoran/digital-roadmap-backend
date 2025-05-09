@@ -40,6 +40,36 @@ objects:
               - name: ROADMAP_HOST_INVENTORY_URL
                 value: ${ROADMAP_HOST_INVENTORY_URL}
 
+              - name: ROADMAP_DB_HOST
+                valueFrom:
+                  secretKeyRef:
+                    name: ${ROADMAP_DB_SECRET_NAME}
+                    key: db.host
+
+              - name: ROADMAP_DB_PORT
+                valueFrom:
+                  secretKeyRef:
+                    name: ${ROADMAP_DB_SECRET_NAME}
+                    key: db.port
+
+              - name: ROADMAP_DB_NAME
+                valueFrom:
+                  secretKeyRef:
+                    name: ${ROADMAP_DB_SECRET_NAME}
+                    key: db.name
+
+              - name: ROADMAP_DB_USER
+                valueFrom:
+                  secretKeyRef:
+                    name: ${ROADMAP_DB_SECRET_NAME}
+                    key: db.user
+
+              - name: ROADMAP_DB_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: ${ROADMAP_DB_SECRET_NAME}
+                    key: db.password
+
               - name: SENTRY_DSN
                 valueFrom:
                   secretKeyRef:
@@ -165,16 +195,6 @@ objects:
                     - key: rds-cacert
                       path: rds_cacert
 
-  - apiVersion: cloud.redhat.com/v1alpha1
-    kind: ClowdJobInvocation
-    metadata:
-      name: inventory-sync-${INVENTORY_SYNC_COUNTER}
-
-    spec:
-      appName: ${APP_NAME}
-      jobs:
-        - inventory-sync
-
 parameters:
   - name: IMAGE_TAG
     description: Image tag
@@ -213,7 +233,7 @@ parameters:
     value: "1"
 
   - name: ROADMAP_DB_SECRET_NAME
-    value: roadmap-db
+    value: host-inventory-db-readonly
 
   - name: DB_NAME
     required: true
