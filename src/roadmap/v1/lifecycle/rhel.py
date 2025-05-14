@@ -47,7 +47,7 @@ def get_lifecycle_data(
     minor: int | None = None,
     reverse: bool = True,
 ):
-    lifecycles = (item for item in OS_LIFECYCLE_DATES.values() if item.minor is not None)
+    lifecycles = (item for item in OS_LIFECYCLE_DATES.values())
 
     if major and minor is not None:
         lifecycles = (item for item in lifecycles if (item.major, item.minor) == (major, minor))
@@ -68,6 +68,28 @@ async def get_systems():
     entire major version.
     """
     return {"data": get_lifecycle_data()}
+
+
+@router.get(
+    "/full",
+    summary="Full lifecycle dates for all major versions of RHEL",
+    response_model=LifecycleResponse,
+)
+async def get_systems_major_full_all():
+    lifecycles = (item for item in get_lifecycle_data() if item.minor is None)
+
+    return {"data": lifecycles}
+
+
+@router.get(
+    "/full/{major}",
+    summary="Full lifecycle dates for a specific major version of RHEL",
+    response_model=LifecycleResponse,
+)
+async def get_systems_major_full(major: MajorVersion):
+    lifecycles = (item for item in get_lifecycle_data(major=major) if item.minor is None)
+
+    return {"data": lifecycles}
 
 
 @router.get(
