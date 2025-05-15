@@ -86,7 +86,7 @@ OS_LIFECYCLE_DATES = {
     ),
     "7.9": RHELLifecycle(
         major=7,
-        minor=8,
+        minor=9,
         start_date=date(2020, 9, 29),
         end_date=date(2024, 6, 30),
         end_date_els=date(2028, 6, 30),
