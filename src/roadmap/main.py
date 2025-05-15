@@ -34,7 +34,11 @@ logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 
 # Initialize FastAPI app
-app = FastAPI(redirect_slashes=False)
+app = FastAPI(
+    title="Insights for RHEL Planning",
+    summary="Major RHEL roadmap items as well as lifecycle data for RHEL and app streams.",
+    redirect_slashes=False,
+)
 
 # Add Prometheus metrics
 instrumentor = Instrumentator()
