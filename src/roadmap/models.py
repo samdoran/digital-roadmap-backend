@@ -25,7 +25,7 @@ class LifecycleType(StrEnum):
 
 class SupportStatus(StrEnum):
     supported = "Supported"
-    six_months = "Support ends within 6 months"
+    near_retirement = "Support ends within 3 months"
     retired = "Retired"
     not_installed = "Not installed"
     upcoming = "Upcoming release"
@@ -114,7 +114,10 @@ class TaggedParagraph(BaseModel):
 
 
 def _calculate_support_status(
-    start_date: date | str | None, end_date: date | str | None, current_date: date
+    start_date: date | None,
+    end_date: date | None,
+    current_date: date,
+    months: int = 3,
 ) -> SupportStatus:
     support_status = SupportStatus.unknown
 
@@ -126,9 +129,9 @@ def _calculate_support_status(
         if end_date < current_date:
             return SupportStatus.retired
 
-        six_months_date = end_date - timedelta(days=180)
-        if six_months_date <= current_date:
-            return SupportStatus.six_months
+        expiration_date = end_date - timedelta(days=30 * months)
+        if expiration_date <= current_date:
+            return SupportStatus.near_retirement
 
         return SupportStatus.supported
 

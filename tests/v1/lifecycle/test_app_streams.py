@@ -13,6 +13,7 @@ from roadmap.models import SupportStatus
 from roadmap.v1.lifecycle.app_streams import AppStreamImplementation
 from roadmap.v1.lifecycle.app_streams import RelevantAppStream
 from roadmap.v1.lifecycle.app_streams import StringPackage
+from tests.utils import SUPPORT_STATUS_TEST_CASES
 
 
 def test_get_app_streams(api_prefix, client):
@@ -220,7 +221,7 @@ def test_get_relevant_app_stream_resource_definitions_with_group_restriction(api
     assert result.status_code == 200
 
 
-def test_get_revelent_app_stream_related(api_prefix, client):
+def test_get_revelent_app_stream_related(api_prefix, client, mocker):
     async def query_rbac_override():
         return [
             {
@@ -232,11 +233,27 @@ def test_get_revelent_app_stream_related(api_prefix, client):
     async def decode_header_override():
         return "1234"
 
+    # Set a specific date for today in order to test that app streams that are
+    # already retired are not returned in the results.
+    #
+    # This test is specifically using the end_date of a FreeRADIUS 3.0
+    # app stream that is 2029-05-31.
+    #
+    # The test data has a host with FreeRADIUS 2.8.
+    mock_date = mocker.patch("roadmap.v1.lifecycle.app_streams.date", wraps=date)
+    mock_date.today.return_value = date(2030, 6, 1)
+
     client.app.dependency_overrides = {}
     client.app.dependency_overrides[query_rbac] = query_rbac_override
     client.app.dependency_overrides[decode_header] = decode_header_override
-    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams?related=true")
+
+    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams", params={"related": True})
     data = result.json().get("data", "")
+    related_count = sum(1 for item in data if item["related"])
+    free_radius_streams = [n for n in data if "freeradius" in n["display_name"].casefold()]
+
+    assert len(free_radius_streams) <= 2, "Got too many related app streams for FreeRADIUS"
+    assert related_count, "No related items were returned"
     assert result.status_code == 200
     assert len(data) > 0
 
@@ -317,60 +334,9 @@ def test_app_stream_package_single_digit():
 
 
 @pytest.mark.parametrize(
-    ("current_date", "app_stream_start", "app_stream_end", "status"),
-    (
-        (
-            # OK situation, stream supported
-            date(2025, 3, 27),
-            date(2020, 1, 1),
-            date(2027, 12, 31),
-            SupportStatus.supported,
-        ),
-        # Support ends within 6 months (180 days)
-        (
-            date(2027, 6, 15),
-            date(2020, 1, 1),
-            date(2027, 12, 1),
-            SupportStatus.six_months,
-        ),
-        # Stream retired
-        (
-            date(2028, 1, 1),
-            date(2020, 1, 1),
-            date(2027, 12, 31),
-            SupportStatus.retired,
-        ),
-        # Stream not yet started
-        (
-            date(2019, 12, 31),
-            date(2020, 1, 1),
-            date(2027, 12, 31),
-            SupportStatus.upcoming,
-        ),
-        # Stream has no end date
-        (
-            date(2025, 3, 27),
-            date(2020, 1, 1),
-            None,
-            SupportStatus.unknown,
-        ),
-        # Stream has no start date
-        (
-            date(2025, 3, 27),
-            None,
-            date(2027, 12, 31),
-            SupportStatus.supported,
-        ),
-        # Stream has no start or end date
-        (
-            date(2025, 3, 27),
-            None,
-            None,
-            SupportStatus.unknown,
-        ),
-    ),
+    ("current_date", "app_stream_start", "app_stream_end", "expected_status"), SUPPORT_STATUS_TEST_CASES
 )
-def test_calculate_support_status_appstream(mocker, current_date, app_stream_start, app_stream_end, status):
+def test_calculate_support_status_appstream(mocker, current_date, app_stream_start, app_stream_end, expected_status):
     # cannot mock the datetime.date.today directly as it's written in C
     # https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
     mock_date = mocker.patch("roadmap.v1.lifecycle.app_streams.date", wraps=date)
@@ -390,7 +356,7 @@ def test_calculate_support_status_appstream(mocker, current_date, app_stream_sta
         systems=[],
     )
 
-    assert app_stream.support_status == status
+    assert app_stream.support_status == expected_status
 
 
 @pytest.mark.parametrize(
