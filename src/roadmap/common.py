@@ -1,12 +1,14 @@
 import base64
 import json
 import logging
+import textwrap
 import typing as t
 import urllib.parse
 import urllib.request
 
 from datetime import date
 from urllib.error import HTTPError
+from uuid import UUID
 
 from fastapi import Depends
 from fastapi import Header
@@ -87,54 +89,185 @@ async def query_rbac(
     return data.get("data", [{}])
 
 
-async def check_inventory_access(
+def _get_group_list_from_resource_definition(resource_definition: dict) -> list[str]:
+    if attributeFilter := resource_definition.get("attributeFilter"):
+        if attributeFilter.get("key") != "group.id":
+            raise HTTPException(501, detail="Invalid value for attributeFilter.key in RBAC response.")
+        op = attributeFilter.get("operation")
+        if op not in ("in", "equal"):
+            raise HTTPException(501, detail="Invalid value for attributeFilter.operation in RBAC response.")
+        val = attributeFilter.get("value")
+        if op == "in":
+            if not isinstance(val, list):
+                raise HTTPException(501, detail="Did not receive a list for attributeFilter.value in RBAC response.")
+        else:
+            if not isinstance(val, str):
+                raise HTTPException(501, detail="Did not receive a str for attributeFilter.value in RBAC response.")
+            val = [val]
+
+        group_list = val
+        # Validate that all values in the filter are UUIDs.
+        for gid in group_list:
+            # It is possible that the group id is None, which means
+            # permission to access a host who belongs to a group which
+            # has its "ungrouped" attribute set to True.
+            # TODO: Check if this None check can be removed once the Kessel Phase 0 migration is complete.
+            # https://issues.redhat.com/browse/RHINENG-16842
+            if gid is not None:
+                try:
+                    UUID(gid)
+                except (ValueError, TypeError):
+                    logger.warning(f"RBAC attributeFilter contained erroneous UUID: '{gid}'")
+                    raise HTTPException(
+                        501, detail="Received invalid UUIDs for attributeFilter.value in RBAC response."
+                    )
+        return group_list
+    raise HTTPException(501, detail="RBAC resourceDefinition had no attributeFilter.")
+
+
+async def get_allowed_host_groups(
     permissions: t.Annotated[list[dict[t.Any, t.Any]], Depends(query_rbac)],
-) -> list[dict]:
+) -> set[str | None]:
     """Check the given permissions for inventory access.
 
     Raise HTTPException if no permissions allow access.
 
-    Return list of resource definitions and permission.
+    Return set of groups hosts may belong to, if restricted, otherwise returns
+    an empty set, meaning unrestricted access to the org's hosts.
+
+    It is possible the set of groups may contain a None. This refers to a group
+    whose 'ungrouped' attribute is True.
+
     """
-    inventory_access_perms = {"inventory:*:*", "inventory:*:read", "inventory:hosts:read"}
+    allowed_group_ids = set()  # If populated, limits the allowed resources to specific group IDs
+
+    inventory_access_perms = {"inventory:*:*", "inventory:*:read", "inventory:hosts:read", "inventory:hosts:*"}
     host_permissions = [p for p in permissions if p.get("permission") in inventory_access_perms]
 
     if not host_permissions:
         raise HTTPException(status_code=403, detail="Not authorized to access host inventory")
 
-    return host_permissions
+    for perm in host_permissions:
+        if not (resourceDefinition := perm["resourceDefinitions"]):
+            # Any record with an empty resourceDefinition means
+            # unrestricted access.
+            # https://insights-rbac.readthedocs.io/en/latest/management.html#resource-definitions
+            return set()
+
+        # Get the list of allowed Group IDs from the attribute filter.
+        for resourceDefinition in perm["resourceDefinitions"]:
+            group_list = _get_group_list_from_resource_definition(resourceDefinition)
+            allowed_group_ids.update(group_list)
+
+    return allowed_group_ids
 
 
-# FIXME: This should be cached
 async def query_host_inventory(
     org_id: t.Annotated[str, Depends(decode_header)],
     session: t.Annotated[AsyncSession, Depends(get_db)],
     settings: t.Annotated[Settings, Depends(Settings.create)],
-    permissions: t.Annotated[list[dict], Depends(check_inventory_access)],
+    host_groups: t.Annotated[set[str | None], Depends(get_allowed_host_groups)],
     major: MajorVersion = None,
     minor: MinorVersion = None,
 ):
+    """
+    Query the Hosts database for system information on this org's hosts.
+
+    Only return data the authenticated user is permitted to read. Specifically,
+    if "host_groups" is not empty (which implies unrestricted access), only
+    return hosts that belong to a group present in "host_groups"
+
+    Note there is a special case in the result "get_allowed_host_groups"
+    returns, in that the return value may contain (with or without other group
+    ids) a None value. If None is present in "host_groups", one of the
+    permitted  groups is the "ungrouped" group. While other groups are
+    identified by the value of their "id" field, the "ungrouped" group is
+    identified by the fact that the value of its "ungrouped" field is `true`.
+
+    """
     if settings.dev:
         org_id = "1234"
 
-    if any(perm.get("resourceDefinitions") for perm in permissions):
-        logger.info(f"RBAC {permissions}")
-        # TODO: Implement workspace filtering
-        raise HTTPException(501, detail="Workspace filtering is not yet implemented")
-
+    # Build up a query for this org's hosts.
     query = "SELECT * FROM hbi.hosts WHERE org_id = :org_id"
+
+    # #>> '{{operating_system,major}}' fetches the attribute "major" from the
+    # "operating_system" subobject in the host's record. This subobject is kept
+    # as JSON, and the #>> operator decodes and accesses into it.
     if major is not None:
         query = f"{query} AND system_profile_facts #>> '{{operating_system,major}}' = :major"
 
     if minor is not None:
         query = f"{query} AND system_profile_facts #>> '{{operating_system,minor}}' = :minor"
 
+    # If host group data is given, we need to filter out hosts that this user
+    # is not permitted to see. To do this we add more WHERE clauses to our
+    # query.
+    if host_groups:
+        # the hosts database keeps groups data in a JSONB field, with contents
+        # like this:
+        # [
+        #    {
+        #     "account": "123456",
+        #     "created": "2025-01-07T12:58:59.569065+00:00",
+        #     "host_count": 1,
+        #     "id": "f770fbf4-359d-11f0-b21b-5e43c8b8aa2f",
+        #     "name": "GroupTwo",
+        #     "org_id": "1234",
+        #     "ungrouped": false,
+        #     "updated": "2025-01-07T12:59:52.471612+00:00"
+        #    }
+        # ]
+
+        # The following two lines of SQL efficiently search for a match on
+        # criteria, and return TRUE if a match is found, FALSE otherwise. Here
+        # is how the lines work:
+        #
+        # * "jsonb_array_elements" queries into the denormalized JSON present
+        #   in the "groups" field. In each line the code tests a condition on a
+        #   certain field of that json data. The first line is searching for an
+        #   "ungrouped" field to have a value of "true", and the second line is
+        #   searching for the value held in the "id" field to be present in a
+        #   given set of ids.
+        # * "SELECT 1" causes the query to stop at the first match it
+        #   finds.
+        # * "EXISTS" returns a BOOLEAN instead of the result of the query.
+
+        # There is a special case. If None is in host_groups, we must query
+        # for a group that has ungrouped == True.
+        ungrouped_query = """
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(hosts.groups::jsonb) AS group_obj
+                    WHERE (group_obj->>'ungrouped')::boolean = true)
+        """
+        # This query searches for any group record with an id that matches any
+        # of our eligible host group ids.
+        grouped_query = """
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(hosts.groups::jsonb) AS group_obj
+                    WHERE group_obj->>'id' = ANY(:host_groups))
+        """
+
+        # Here we add our "group" subqueries to the WHERE clause of our final
+        # query. If the query contains both a None and string-based group id
+        # then the clauses that detect them must be comibined with on OR
+        # statement.
+        suffix = f" AND {grouped_query}"
+        if None in host_groups:
+            suffix = f" AND {ungrouped_query}"
+            if len(host_groups) > 1:
+                # Accept either a group id match or ungrouped = true.
+                suffix = f" AND ({ungrouped_query} OR {grouped_query})"
+
+        query += suffix
+
     result = await session.stream(
-        text(query),
+        text(textwrap.dedent(query)),
         params={
             "org_id": org_id,
             "major": str(major),
             "minor": str(minor),
+            "host_groups": list(host_groups),
         },
     )
     yield result

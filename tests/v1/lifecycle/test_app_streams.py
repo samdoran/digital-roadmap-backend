@@ -173,7 +173,7 @@ def test_get_relevant_app_stream_resource_definitions(api_prefix, client):
                 "resourceDefinitions": [
                     {
                         "attributeFilter": {
-                            "key": "group_id",
+                            "key": "group.id",
                             "value": ["ebeaf62a-9713-4dad-8d63-32b51cadbda3"],
                             "operation": "in",
                         },
@@ -186,14 +186,13 @@ def test_get_relevant_app_stream_resource_definitions(api_prefix, client):
     client.app.dependency_overrides[query_rbac] = query_rbac_override
 
     result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
-
-    assert result.status_code == 501
-    assert "not yet implemented" in result.json()["detail"].casefold()
+    assert result.status_code == 200
 
 
 def test_get_relevant_app_stream_resource_definitions_with_group_restriction(api_prefix, client):
     """Testing a specific case that used to cause 501s"""
 
+    # Note the restriction is on _groups_, not on _hosts_.
     async def query_rbac_override():
         return [
             {"permission": "inventory:hosts:read", "resourceDefinitions": []},
@@ -218,6 +217,79 @@ def test_get_relevant_app_stream_resource_definitions_with_group_restriction(api
 
     result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams")
 
+    assert result.status_code == 200
+
+
+def test_get_relevant_app_stream_resource_definitions_with_ungrouped_permission(api_prefix, client):
+    """
+    Given a group with value None, which means "ungrouped", assert that only
+    the host which belongs to the "ungrouped" group is returned.
+
+    """
+
+    async def query_rbac_override():
+        return [
+            {
+                "permission": "inventory:hosts:read",
+                "resourceDefinitions": [
+                    {
+                        "attributeFilter": {
+                            "key": "group.id",
+                            "operation": "in",
+                            "value": [None],
+                        }
+                    }
+                ],
+            },
+        ]
+
+    async def decode_header_override():
+        return "1234"
+
+    client.app.dependency_overrides = {}
+    client.app.dependency_overrides[query_rbac] = query_rbac_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
+    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams?related=true")
+    data = result.json().get("data", "")
+    assert result.status_code == 200
+    assert len(data) == 1
+    # In the test data there is an eligible system from another group (for
+    # which the request does not have permission) that shows NGINX 1.14,
+    # and another with NGINX 1.22.
+    assert data[0]["display_name"] == "Node.js 18"
+
+
+def test_get_relevant_app_stream_resource_definitions_with_ungrouped_and_grouped_permission(api_prefix, client):
+    """Testing a case with group None, which means 'ungrouped', and another non-None group id"""
+
+    async def query_rbac_override():
+        return [
+            {
+                "permission": "inventory:hosts:read",
+                "resourceDefinitions": [
+                    {
+                        "attributeFilter": {
+                            "key": "group.id",
+                            "operation": "in",
+                            "value": [None, "aec18a86-3593-11f0-8426-5e43c8b8aa2f"],
+                        }
+                    }
+                ],
+            },
+        ]
+
+    async def decode_header_override():
+        return "1234"
+
+    client.app.dependency_overrides = {}
+    client.app.dependency_overrides[query_rbac] = query_rbac_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
+    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams?related=true")
+    data = result.json().get("data", "")
+    # In the test data there is an eligible system from another group (for
+    # which the request does not have permission) that shows NGINX 1.14.
+    display_names = {d["display_name"] for d in data}
+    assert {"Node.js 18", "NGINX 1.22"} == display_names
     assert result.status_code == 200
 
 
@@ -255,7 +327,60 @@ def test_get_revelent_app_stream_related(api_prefix, client, mocker):
     assert len(free_radius_streams) <= 2, "Got too many related app streams for FreeRADIUS"
     assert related_count, "No related items were returned"
     assert result.status_code == 200
-    assert len(data) > 0
+    assert len(data) > 1
+
+
+@pytest.mark.parametrize(
+    "rbac",
+    (
+        [
+            {
+                "permission": "inventory:hosts:read",
+                "resourceDefinitions": [
+                    {
+                        "attributeFilter": {
+                            "key": "group.id",
+                            "operation": "in",
+                            "value": ["aec18a86-3593-11f0-8426-5e43c8b8aa2f", "397e1696-34f2-11f0-a718-5e43c8b8aa2f"],
+                        }
+                    }
+                ],
+            },
+        ],
+        [
+            {
+                "permission": "inventory:hosts:read",
+                "resourceDefinitions": [
+                    {
+                        "attributeFilter": {
+                            "key": "group.id",
+                            "operation": "equal",
+                            "value": "aec18a86-3593-11f0-8426-5e43c8b8aa2f",
+                        }
+                    }
+                ],
+            },
+        ],
+    ),
+)
+def test_get_revelent_app_stream_related_with_group_permissions(api_prefix, client, rbac):
+    async def query_rbac_override():
+        return rbac
+
+    async def decode_header_override():
+        return "1234"
+
+    client.app.dependency_overrides = {}
+    client.app.dependency_overrides[query_rbac] = query_rbac_override
+    client.app.dependency_overrides[decode_header] = decode_header_override
+    result = client.get(f"{api_prefix}/relevant/lifecycle/app-streams?related=true")
+    data = result.json().get("data", "")
+    assert result.status_code == 200
+    assert len(data) == 1
+    # In the test data there is an eligible system from another group (for
+    # which the request does not have permission) that shows NGINX 1.14,
+    # and another with nodejs 18.
+    assert data[0]["display_name"] == "NGINX 1.22"
 
 
 def test_app_stream_missing_lifecycle_data():
