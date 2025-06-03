@@ -1,0 +1,45 @@
+- name: Get RHEL lifecycle data from the Roadmap API
+  hosts: localhost
+  gather_facts: no
+  become: no
+
+  vars:
+    rh_offline_token: "{{ lookup('env', 'RH_OFFLINE_TOKEN', default=Undefined) }}"
+    save_response: "{{ lookup('env', 'SAVE_RESPONSE', default=False) | bool }}"
+    output_dir: "{{ playbook_dir }}/../scratch"
+
+  tasks:
+    - name: Get access token
+      uri:
+        url: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: refresh_token
+          client_id: rhsm-api
+          refresh_token: "{{ rh_offline_token }}"
+      register: result
+
+    - name: Get app stream lifecycle data
+      uri:
+        url: https://console.redhat.com/api/roadmap/v1/lifecycle/app-streams
+        headers:
+          Authorization: "Bearer {{ result.json.access_token }}"
+      register: result
+
+    - debug:
+        msg: "{{ result.json.data | to_nice_json }}"
+
+    - name: Save results
+      when: save_response
+      block:
+        - name: Create output directory
+          file:
+            path: "{{ output_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Save response
+          copy:
+            content: "{{ result.json.data | to_nice_json }}"
+            dest: "{{ output_dir }}/app-stream-lifecycle.json"
