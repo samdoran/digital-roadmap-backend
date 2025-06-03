@@ -1,4 +1,4 @@
-### Example Ansible playboks ###
+### Example Ansible playbooks ###
 
 Here are some example playbooks for using the [Insights for RHEL Planning API] to get RHEL lifecycle data. They make the process of getting an access token and using that to interact with Red Hat APIs a bit easier.
 
@@ -28,7 +28,7 @@ See [Getting started with Red Hat APIs] and the [Red Hat API catalog documentati
 
 [Insights for RHEL Planning API]: https://developers.redhat.com/api-catalog/api/roadmap
 [Ansible Core]: https://pypi.org/project/ansible-core/
-[Red Hat account]: https://sso.redhat.com/auth/realms/redhat-external/login-actions/registration?client_id=cloud-services&tab_id=xCzmPD18Y8Q&client_data=eyJydSI6Imh0dHBzOi8vY29uc29sZS5yZWRoYXQuY29tLyIsInJ0IjoiY29kZSIsInJtIjoiZnJhZ21lbnQiLCJzdCI6IjFiNDY1OTk5ZmU2MzRiMzRiNTY2YzQ2NWEzNmZjNDBkIn0
+[Red Hat account]: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/registrations?client_id=customer-portal&response_type=code&redirect_uri=https://access.redhat.com
 [offline token]: https://access.redhat.com/management/api
 [Getting started with Red Hat APIs]: https://access.redhat.com/articles/3626371
 [Red Hat API catalog documentation]: https://developers.redhat.com/api-catalog/
