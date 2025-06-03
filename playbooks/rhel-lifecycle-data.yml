@@ -28,7 +28,7 @@
       register: result
 
     - debug:
-        msg: "{{ result.json.data | to_nice_json }}"
+        msg: "{{ result.json.data }}"
 
     - name: Save results
       when: save_response
