@@ -25,7 +25,7 @@ class LifecycleType(StrEnum):
 
 class SupportStatus(StrEnum):
     supported = "Supported"
-    near_retirement = "Support ends within 3 months"
+    near_retirement = "Near retirement"
     retired = "Retired"
     not_installed = "Not installed"
     upcoming = "Upcoming release"
@@ -59,7 +59,10 @@ class Lifecycle(BaseModel):
         """
         today = date.today()
         self.support_status = _calculate_support_status(
-            start_date=self.start_date, end_date=self.end_date, current_date=today
+            start_date=self.start_date,
+            end_date=self.end_date,
+            current_date=today,
+            months=3,
         )
 
         return self
@@ -117,7 +120,7 @@ def _calculate_support_status(
     start_date: date | None,
     end_date: date | None,
     current_date: date,
-    months: int = 3,
+    months: int,
 ) -> SupportStatus:
     support_status = SupportStatus.unknown
 
