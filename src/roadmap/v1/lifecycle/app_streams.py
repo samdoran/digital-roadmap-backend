@@ -314,35 +314,92 @@ def app_streams_from_modules(
     return app_streams
 
 
-class StringPackage(BaseModel, frozen=True):
+class NEVRA(BaseModel, frozen=True):
     name: str
+    epoch: str
     major: str
+    minor: str
+    z: str | None = None
+    release: str
+    arch: str
 
     @classmethod
-    def from_string(cls, s):
-        name, separator, major = s.partition(":")
-        if not separator:
-            # Missing ':' in the expected package name. Partition on '-' instead.
-            #   Example: cairo-1.15.12-3.el8.x86_64
-            name, separator, major = s.partition("-")
+    def from_string(cls, package: str) -> "NEVRA":
+        """Parse a package string and return an instance of this class.
 
-        name = name.rsplit("-", 1)[0]
-        major = major.split(".")[0]
-        return cls(name=name, major=major)
+        The expected string format is name-[epoch:]version-release.architecture.
+
+        Examples:
+
+            cairo-1.15.12-3.el8.x86_64
+            ansible-core-1:2.14.17-1.el9.x86_64
+            NetworkManager-1:1.46.0-26.el9_4.x86_64
+            basesystem-0:11-13.el9.noarch
+            abattis-cantarell-fonts-0:0.301-4.el9.noarch
+
+        """
+
+        # Partition into name and version/release/architecture
+        name, sep, vra = package.partition(":")
+        if sep:
+            name, epoch = name.rsplit("-", 1)
+        else:
+            # Missing epoch component. Partition on '-' instead.
+            # Example: cairo-1.15.12-3.el8.x86_64
+            epoch = "0"
+            name, _, vra = package.partition("-")
+
+        # Extract architecture and release
+        arch_idx = vra.rindex(".")
+        arch = vra[arch_idx + 1 :]
+
+        rel_idx = vra.index("-", 0, arch_idx)
+        release = vra[rel_idx + 1 : arch_idx]
+
+        # Get the version then split in into X.Y.Z parts
+        version = vra[:rel_idx]
+        major, _, minor_z = version.partition(".")
+        if not minor_z:
+            minor = ""
+            z = ""
+        else:
+            minor, _, z = minor_z.partition(".")
+
+        return cls(
+            name=name,
+            major=major,
+            minor=minor,
+            z=z,
+            epoch=epoch,
+            release=release,
+            arch=arch,
+        )
 
 
 def app_streams_from_packages(
     package_names_string: list[str],
     os_major: str,
 ) -> set[AppStreamKey]:
-    packages = set(StringPackage.from_string(s) for s in package_names_string)
+    # FIXME: This approach to getting the stream from the package NEVRA is incorrect and flawed.
+    #
+    #        The package major/minor are not guaranteed to match the stream major/minor.
+    #        That it matches is a coincidence, one that happens pretty often, giving the illusion
+    #        the code is working as intended.
+    #
+    #        In order to accurately lookup the app stream from a package NEVRA string, we need to
+    #        compile a list of all the versions — at least major/minor — that are in an app stream.
+    #        That data does not exist today in readily available format.
+    packages = set(NEVRA.from_string(package) for package in package_names_string)
     app_streams = set()
     for package in packages:
         if app_stream_package := APP_STREAM_PACKAGES.get(package.name):
-            if app_stream_package.os_major == os_major and app_stream_package.stream.split(".")[0] == package.major:
-                app_streams.add(
-                    AppStreamKey(app_stream_entity=app_stream_package, name=app_stream_package.application_stream_name)
-                )
+            if app_stream_package.os_major == os_major:
+                if app_stream_package.stream.split(".")[:2] == [package.major, package.major]:
+                    app_streams.add(
+                        AppStreamKey(
+                            app_stream_entity=app_stream_package, name=app_stream_package.application_stream_name
+                        )
+                    )
     return app_streams
 
 
