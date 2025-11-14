@@ -27,8 +27,11 @@ from roadmap.models import _get_system_uuids
 from roadmap.models import Meta
 from roadmap.models import SystemInfo
 from roadmap.v1.lifecycle.app_streams import NEVRA
+from roadmap.v1.lifecycle.rhel import MajorVersion
+from roadmap.v1.lifecycle.rhel import MinorVersion
 
 
+_all = all
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/upcoming-changes", tags=["Upcoming Changes"])
@@ -143,7 +146,16 @@ def get_upcoming_data_no_hosts(settings: t.Annotated[Settings, Depends(Settings.
     summary="Upcoming changes, deprecations, additions, and enhancements",
     response_model=WrappedUpcomingInput,
 )
-async def get_upcoming(data: t.Annotated[t.Any, Depends(get_upcoming_data_no_hosts)]):
+async def get_upcoming(
+    data: t.Annotated[t.Any, Depends(get_upcoming_data_no_hosts)],
+    major: MajorVersion | None = None,
+    minor: MinorVersion | None = None,
+):
+    if _all([major, minor]):
+        data = [item for item in data if item.release == f"{major}.{minor}"]
+    elif major is not None:
+        data = [item for item in data if item.os_major == major]
+
     return {
         "meta": {
             "total": len(data),
@@ -251,6 +263,8 @@ relevant = APIRouter(
 async def get_upcoming_relevant(
     data: t.Annotated[t.Any, Depends(get_upcoming_data_with_hosts)],
     all: bool = False,
+    major: MajorVersion | None = None,
+    minor: MinorVersion | None = None,
 ):
     """
     Returns a list of upcoming changes to packages.
@@ -263,6 +277,11 @@ async def get_upcoming_relevant(
     """
     if not all:
         data = [d for d in data if d.details.potentiallyAffectedSystemsDetail]
+
+    if _all([major, minor]):
+        data = [item for item in data if item.release == f"{major}.{minor}"]
+    elif major is not None:
+        data = [item for item in data if item.os_major == major]
 
     return {
         "meta": {
