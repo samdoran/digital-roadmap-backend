@@ -103,6 +103,7 @@ class UpcomingOutput(BaseModel):
     type: UpcomingType
     packages: set[str]
     release: str
+    os_major: int = Field(default_factory=lambda data: int(data["release"].partition(".")[0]))
     date: Date
     details: UpcomingOutputDetails
 
